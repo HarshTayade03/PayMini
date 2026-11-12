@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
+from fastapi.encoders import jsonable_encoder
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import settings
@@ -75,7 +76,8 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    first_error = exc.errors()[0] if exc.errors() else {}
+    errors = exc.errors()
+    first_error = errors[0] if errors else {}
     msg = first_error.get("msg", "Invalid input data")
     loc = " -> ".join([str(x) for x in first_error.get("loc", [])])
     return JSONResponse(
@@ -84,7 +86,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "error": {
                 "error": "validation_error",
                 "message": f"{msg} at {loc}" if loc else msg,
-                "details": {"errors": exc.errors()}
+                "details": jsonable_encoder(errors)
             }
         }
     )

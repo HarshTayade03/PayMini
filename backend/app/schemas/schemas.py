@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -40,8 +40,7 @@ class UserResponse(BaseModel):
     email: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TokenResponse(BaseModel):
@@ -59,19 +58,18 @@ class WalletResponse(BaseModel):
     currency: str = "INR"
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TopUpRequest(BaseModel):
     # Top up amount in minor units (paise)
-    amount_paise: int = Field(..., gt=0, le=100000, description="Amount in paise to add (max ₹1,000 / 100,000 paise)")
+    amount_paise: int = Field(..., gt=0, description="Amount in paise to add")
 
 
 # ---------------- Transfer Schemas ----------------
 class TransferRequest(BaseModel):
     recipient_email: EmailStr = Field(..., description="Email address of the recipient")
-    amount_paise: int = Field(..., gt=0, le=200000, description="Amount in paise (max ₹2,000 / 200,000 paise)")
+    amount_paise: int = Field(..., gt=0, description="Amount in paise")
     note: Optional[str] = Field(None, max_length=140, description="Optional note (max 140 characters)")
 
 
@@ -107,8 +105,7 @@ class TransactionItem(BaseModel):
     note: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TransactionHistoryResponse(BaseModel):
