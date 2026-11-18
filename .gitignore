@@ -35,6 +35,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# Documentation (Keep local, exclude from git)
+docs/
+
 # IDE & OS
 .idea/
 .vscode/
