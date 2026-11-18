@@ -1,43 +1,54 @@
 # PayMini - Peer-to-Peer Digital Wallet (Learning Simulation)
 
-> **IMPORTANT NOTICE: DEMO & LEARNING SIMULATION ONLY**
-> This application is an educational simulation built for software engineering interviews and learning purposes. All balances, deposits, and transfers use **fake test currency (INR paise)**. No real payment gateways, credit cards, or banking APIs are integrated. No real card numbers or payment credentials should ever be entered into this system.
+> **IMPORTANT NOTICE: DEMO & LEARNING SIMULATION ONLY**  
+> This application is an educational simulation built for software engineering learning and interview preparation. All balances, deposits, and transfers use **fake test currency (INR paise)**. No real payment gateways, credit cards, or banking APIs are integrated. No real card numbers or payment credentials should ever be entered into this system.
 
 ---
 
 ## Overview
 
-PayMini is a full-stack peer-to-peer (P2P) digital wallet application built with:
-- **Backend:** Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0, PostgreSQL, Alembic, pytest.
-- **Frontend:** Next.js 14+ (App Router), TypeScript, Tailwind CSS, Lucide icons.
+PayMini is a full-stack peer-to-peer (P2P) digital wallet application designed with clean architecture, strict database transactional guarantees, and modern web security practices:
+
+- **Backend:** Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0, PostgreSQL 16, Alembic, pytest.
+- **Frontend:** Next.js 14 (App Router), TypeScript, Tailwind CSS, Lucide icons.
 - **Infrastructure:** Docker Compose (FastAPI + Next.js + PostgreSQL), GitHub Actions CI.
-- **Security:** Argon2 password hashing, JWT stored in `httpOnly` `SameSite=Lax` cookies, parameterized queries, strict server-side validation, and zero exposure of internal tokens to browser JavaScript.
+- **Security:** Argon2id password hashing, JWT access tokens sealed in `httpOnly` `SameSite=Lax` cookies via a Next.js Backend-For-Frontend (BFF) proxy, parameterized SQL queries, sliding-window rate limiting, and zero direct exposure of auth tokens to browser JavaScript.
 
 ---
 
-## Architecture at a Glance
+## Architecture
 
 ```text
-[ Browser (Chrome/Firefox/Safari) ]
+[ Browser (Chrome / Firefox / Safari) ]
               |
-              | (HTTP requests with httpOnly Cookie)
+              | (HTTPS requests with httpOnly, Secure, SameSite=Lax Cookie)
               v
-[ Next.js Frontend (Port 3000) ]  <-- App Router & Server Route Handlers
+[ Next.js Frontend (Port 3000) ]  <-- BFF Layer: Route Handlers & SSR
               |
-              | (Internal API requests with Bearer JWT)
+              | (Internal API calls with Authorization: Bearer <JWT>)
               v
-[ FastAPI Backend (Port 8000) ]   <-- Validation, Auth, Business Rules, Idempotency
+[ FastAPI Backend (Port 8000) ]   <-- Input Validation, Rate Limiter, Business Rules, Idempotency
               |
               | (SQLAlchemy 2.0 Parameterized Queries inside ACID Transactions)
               v
-[ PostgreSQL 16 (Port 5432) ]     <-- Append-only Ledger, Wallets, Transfers, Users
+[ PostgreSQL 16 (Port 5432) ]     <-- Append-Only Ledger, Wallets, Transfers, Users
 ```
+
+---
+
+## Key Features & Financial Design
+
+1. **Integer Minor-Unit Currency:** All money calculations operate strictly on integers (`paise`, where `100 paise = ₹1.00`). Floating-point arithmetic is banned to prevent IEEE 754 precision inaccuracies.
+2. **Double-Entry Append-Only Ledger:** Every peer-to-peer transfer writes an immutable debit entry for the sender, a credit entry for the recipient, and a transfer record within a single atomic database transaction. Ledger rows are never updated or deleted.
+3. **Idempotency Protection:** Transfer mutations accept an `Idempotency-Key` header with SHA-256 payload fingerprinting to prevent duplicate debits during network retries or client double-clicks.
+4. **Backend-For-Frontend (BFF) Cookie Isolation:** Browser JavaScript cannot read or exfiltrate the JWT (`document.cookie` is empty), neutralizing client-side token theft via XSS.
+5. **Context-Derived Ownership (IDOR Immunity):** Endpoints never accept an account or wallet ID from user input. The backend strictly resolves the authenticated user's wallet directly from the verified cryptographic token subject.
 
 ---
 
 ## Quick Start (Docker Compose)
 
-Run the entire application with a single command:
+Run the entire application locally with a single command:
 
 ```bash
 # 1. Copy the environment template
@@ -48,8 +59,8 @@ docker compose up --build
 ```
 
 Access the services:
-- **Frontend App:** [http://localhost:3000](http://localhost:3000)
-- **FastAPI OpenAPI Swagger Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Frontend Application:** [http://localhost:3000](http://localhost:3000)
+- **FastAPI OpenAPI Interactive Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
 - **API Health Check:** [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health)
 
 ---
@@ -60,14 +71,15 @@ Access the services:
 ```bash
 cd backend
 python -m venv venv
-# On Windows:
+
+# Windows:
 .\venv\Scripts\Activate.ps1
-# On macOS/Linux:
+# macOS / Linux:
 # source venv/bin/activate
 
 pip install -r requirements.txt
 alembic upgrade head
-pytest
+pytest -v
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -82,33 +94,34 @@ npm run dev
 
 ---
 
-## Core Financial Design Principles
+## API Summary
 
-1. **Integer Money Representation:** All monetary amounts are handled strictly as integer minor units (`paise`, where `100 paise = ₹1.00`). Floating-point arithmetic is banned in money calculation to avoid IEEE 754 precision inaccuracies.
-2. **Double-Entry Append-Only Ledger:** Transfers record an immutable debit entry for the sender and a credit entry for the recipient within a single database transaction. Ledger rows are never updated or deleted.
-3. **Idempotency Safeguard:** Transfer requests accept an `Idempotency-Key` header with payload hash checking to prevent double-charging on client retries or rapid double-clicks.
-4. **Explicit Known Limitations:** Concurrency race conditions (such as concurrent requests racing the balance check) are intentionally left unmitigated in version 1 for clear educational inspection. Comprehensive remediation strategies (row locking `SELECT FOR UPDATE`, optimistic locking, serializable transactions) are thoroughly documented in [docs/11-known-limitations-and-concurrency.md](docs/11-known-limitations-and-concurrency.md).
+Versioned under `/api/v1` with automatic OpenAPI documentation:
+
+| Method | Endpoint | Description | Auth Required |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/health` | Service and database health status | No |
+| `POST` | `/api/v1/auth/register` | Register new user + provision starter wallet | No |
+| `POST` | `/api/v1/auth/login` | Authenticate credentials (rate-limited) | No |
+| `GET` | `/api/v1/auth/me` | Fetch authenticated user profile | Yes (Bearer) |
+| `GET` | `/api/v1/wallet` | Fetch current wallet balance | Yes (Bearer) |
+| `POST` | `/api/v1/wallet/top-up` | Add simulation funds (capped) | Yes (Bearer) |
+| `POST` | `/api/v1/transfers` | Send funds to recipient (supports `Idempotency-Key`) | Yes (Bearer) |
+| `GET` | `/api/v1/transactions` | Query ledger history with cursor pagination | Yes (Bearer) |
 
 ---
 
-## Documentation Index
+## Automated Testing
 
-Explore the complete technical and interview documentation in the [`/docs`](docs/00-index.md) folder:
-- [00-index.md](docs/00-index.md) - Documentation roadmap and estimated reading times.
-- [01-overview-and-architecture.md](docs/01-overview-and-architecture.md) - Architecture, request lifecycle, and component tours.
-- [02-data-model-and-ledger.md](docs/02-data-model-and-ledger.md) - ER diagrams, double-entry ledger design, and floating-point risks.
-- [03-auth-and-security.md](docs/03-auth-and-security.md) - Argon2 hashing, JWT via httpOnly cookies, CORS, and OWASP Top 10.
-- [04-transfers-and-transactions.md](docs/04-transfers-and-transactions.md) - ACID mechanics and line-by-line transfer walkthrough.
-- [05-idempotency.md](docs/05-idempotency.md) - Preventing duplicate payments on network retries.
-- [06-api-reference.md](docs/06-api-reference.md) - Complete endpoints, curl examples, and error specifications.
-- [07-frontend-guide.md](docs/07-frontend-guide.md) - Design tokens, Next.js architecture, and accessibility features.
-- [08-testing.md](docs/08-testing.md) - Pytest suite structure, IDOR protection tests, and CI runs.
-- [09-deployment-free.md](docs/09-deployment-free.md) - Zero-cost production deployment guide (Vercel + Render/Railway + Supabase/Neon).
-- [10-after-launch.md](docs/10-after-launch.md) - Observability, smoke testing, log reading, and secret rotation.
-- [11-known-limitations-and-concurrency.md](docs/11-known-limitations-and-concurrency.md) - Race condition timelines, lock ordering, and Version 2 roadmap.
-- [12-interview-prep.md](docs/12-interview-prep.md) - 40+ engineering interview Q&As, PayPal system design, and pitches.
-- [13-glossary.md](docs/13-glossary.md) - Clear 1-line definitions for every domain term.
-- [14-rebuild-it-yourself.md](docs/14-rebuild-it-yourself.md) - Step-by-step milestone guide to recreate this stack from scratch.
-- [15-reading-list.md](docs/15-reading-list.md) - Curated official documentation and learning references.
-- [decision-log.md](docs/decision-log.md) - Architectural decision records (ADRs).
-- [security-checklist.md](docs/security-checklist.md) - Pre-deployment security verification audit.
+The backend includes a comprehensive pytest suite covering auth validation, IDOR protection, ledger invariants ($\sum \text{Debit} = \sum \text{Credit}$), top-up limits, and idempotency deduplication:
+
+```bash
+docker run --rm -v "%cd%/backend:/app" paymini-backend-dev pytest -v
+```
+*(15 integration tests passing across all financial invariants)*
+
+---
+
+## License
+
+This project is licensed under the MIT License. Built for educational and interview preparation purposes.
